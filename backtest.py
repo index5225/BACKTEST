@@ -1,17 +1,24 @@
 ########################################################################
+# 技術分析指標
+# from talib import abstract
+import talib as ta
+# 回測框架
 from backtesting import Backtest, Strategy
-from backtesting.lib import crossover
-from talib import abstract
-import matplotlib.pyplot as plt
+# YAHOO 財經 (數據爬蟲)
 import yfinance as yf
+# 數據處理
 import pandas as pd
 import numpy as np
+# 基礎
 import datetime
+# 圖像化
+import matplotlib.pyplot as plt
 ########################################################################
 
 
 ########################################################################
 # 自定義參數
+# re_download = True
 re_download = False
 ########################################################################
 
@@ -21,73 +28,70 @@ re_download = False
 if re_download == True:
     # 設定時間區間
     start = datetime.datetime(2018,1,1)
-    end = datetime.datetime(2020,1,1)
+    end = datetime.datetime(2024,9,11)
     # 從 YAHOO 下載歷史資料
-    df = yf.download("AAPL", start, end)
+    dataframe = yf.download("^TWII", start, end)
     # 轉存 CSV 檔
-    df.to_csv("data.csv")
+    dataframe.to_csv("data.csv")
 ########################################################################
 
 
 ########################################################################
 # 讀取 CSV 檔
-df = pd.read_csv('data.csv')
+dataframe = pd.read_csv('data.csv')
 # 對空值插值 (避免錯誤)
-df = df.interpolate()
+dataframe = dataframe.infer_objects(copy=False)
 # 篩選目標區間
-date_sel = df['Date']>='2018-01-01'
-df_sel = df[date_sel]
-df_sel['Date'] = pd.to_datetime(df_sel['Date'])
-df_sel = df_sel.set_index('Date')
+dataframe['Date'] = pd.to_datetime(dataframe['Date'])
+dataframe_filter = dataframe[(dataframe['Date']>='2018-01-01') & (dataframe['Date']<='2024-09-11')]
+dataframe_filter = dataframe_filter.set_index('Date')
 ########################################################################
 
 
 ########################################################################
-# 自定義指標：用 TALIB 函式庫計算 KD 值
-df_tmp = df_sel
-# 重新命名 TALIB 欄位
-df_tmp.rename(columns = {'High':'high', 'Low':'low','Adj Close':'close','Close':'non_adj close'}, inplace = True) 
-kd = abstract.STOCH(df_tmp)
-kd.index = df_tmp.index
-# 合併兩個資料表
-fnl_df = df_tmp.join(kd).dropna()
-# 重新命名回測欄位
-fnl_df.rename(columns = {'high':'High', 'low':'Low','close':'Close'}, inplace = True)
-########################################################################
-
-
-########################################################################
-# 自定義函數：跳過策略中的資料
-def I_bypass(data):
-    return data
-########################################################################
-
-
-########################################################################
-# 自定義策略：KD 值
-class KDCross(Strategy): 
-    lower_bound = 20  
-    upper_bound = 80  
-
+# 自定義策略：布林通道上軌買入
+class BollingerBandsStrategy(Strategy):
     def init(self):
-        # K
-        self.k = self.I(I_bypass, self.data.slowk)
-        # D
-        self.d = self.I(I_bypass, self.data.slowd)
+        # 使用 talib 計算布林帶
+        self.upperband, self.middleband, self.lowerband = self.I(
+            ta.BBANDS, 
+            self.data.Close, 
+            timeperiod=20, 
+            nbdevup=2, 
+            nbdevdn=2, 
+            matype=0
+        )
 
     def next(self):
-        if crossover(self.k, self.d) and self.k < self.lower_bound and self.d < self.lower_bound and not self.position:
-            self.buy() 
-        elif crossover(self.d, self.k) and self.k > self.upper_bound and self.d > self.upper_bound: 
-            if self.position and self.position.is_long:
-                self.position.close()
+        # if (self.data.Close[-1] >= self.upperband[-1]) and (not self.position.is_short):
+        #     self.sell()
+
+        # elif self.data.Close[-1] <= self.upperband[-1]:
+        #     self.position.close()
+
+
+        if (self.data.Close[-1] <= self.lowerband[-1]) and (not self.position.is_long):
+            self.buy()
+
+        elif self.data.Close[-1] >= self.lowerband[-1]:
+            self.position.close()
+
+
+
+        # data.Close[-1]：對應的是前一根K線的收盤價。
+        # data.Close[0]：對應的是當前正在處理的K線的收盤價。
+        # data.Close[1]：這個值會超出範圍，因為這是下一根的值，回測中不應訪問未來的數據。
 ########################################################################
 
 
 ########################################################################
-# 運行回測
-bt = Backtest(fnl_df, KDCross, cash = 10000, commission = .002)
-rslt = bt.run()
-print(rslt)
-bt.plot()
+# 運行回測並圖像化 (數據、策略、資金、稅費)
+result = Backtest(dataframe_filter, BollingerBandsStrategy, cash=100000, commission=0.02)
+result.run()
+result.plot(relative_equity=False, plot_equity=True, plot_return=True, plot_volume=False, superimpose=True)
+# relative_equity 權益及報酬 (True 百分比表示、False 金額表示)
+# plot_equity 顯示權益曲線
+# plot_return 顯示報酬率
+# plot_volume 顯示量
+# superimpose 顯示月k在背景
 ########################################################################
