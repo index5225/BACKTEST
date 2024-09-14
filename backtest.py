@@ -63,20 +63,25 @@ class BollingerBandsStrategy(Strategy):
         )
 
     def next(self):
-        # if (self.data.Close[-1] >= self.upperband[-1]) and (not self.position.is_short):
-        #     self.sell()
+        if (self.middleband[-1] >= self.middleband[-2]):
+            # 如果沒有頭寸，並且價格跌破下軌，買入
+            if self.data.Close[-1] < self.lowerband[-1] and not self.position.is_long:
+            # if self.data.Close[-1] < self.lowerband[-1]:
+                self.buy()
 
-        # elif self.data.Close[-1] <= self.upperband[-1]:
-        #     self.position.close()
+            # 如果持有多頭倉位，並且價格回到中軌，賣出平倉
+            elif self.position.is_long and self.data.Close[-1] >= self.middleband[-1]:
+                self.position.close()
 
+        elif (self.middleband[-1] <= self.middleband[-2]):
+            # 如果沒有頭寸，並且價格突破上軌，賣出
+            if self.data.Close[-1] > self.upperband[-1] and not self.position.is_short:
+            # elif self.data.Close[-1] > self.upperband[-1]:
+                self.sell()
 
-        if (self.data.Close[-1] <= self.lowerband[-1]) and (not self.position.is_long):
-            self.buy()
-
-        elif self.data.Close[-1] >= self.lowerband[-1]:
-            self.position.close()
-
-
+            # 如果持有空頭倉位，並且價格回到中軌，買入平倉
+            elif self.position.is_short and self.data.Close[-1] <= self.middleband[-1]:
+                self.position.close()
 
         # data.Close[-1]：對應的是前一根K線的收盤價。
         # data.Close[0]：對應的是當前正在處理的K線的收盤價。
@@ -88,7 +93,7 @@ class BollingerBandsStrategy(Strategy):
 # 運行回測並圖像化 (數據、策略、資金、稅費)
 result = Backtest(dataframe_filter, BollingerBandsStrategy, cash=100000, commission=0.02)
 result.run()
-result.plot(relative_equity=False, plot_equity=True, plot_return=True, plot_volume=False, superimpose=True)
+result.plot(relative_equity=True, plot_equity=True, plot_return=False, plot_volume=False, superimpose=True)
 # relative_equity 權益及報酬 (True 百分比表示、False 金額表示)
 # plot_equity 顯示權益曲線
 # plot_return 顯示報酬率
