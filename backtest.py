@@ -4,6 +4,7 @@
 import talib as ta
 # 回測框架
 from backtesting import Backtest, Strategy
+from backtesting.test import SMA 
 # YAHOO 財經 (數據爬蟲)
 import yfinance as yf
 # 數據處理
@@ -43,16 +44,39 @@ dataframe = pd.read_csv('data.csv')
 dataframe = dataframe.infer_objects(copy=False)
 # 篩選目標區間
 dataframe['Date'] = pd.to_datetime(dataframe['Date'])
-dataframe_filter = dataframe[(dataframe['Date']>='2018-01-01') & (dataframe['Date']<='2024-09-11')]
+dataframe_filter = dataframe[(dataframe['Date']>='2023-01-01') & (dataframe['Date']<='2024-09-11')]
 dataframe_filter = dataframe_filter.set_index('Date')
 ########################################################################
 
 
 ########################################################################
-# 自定義策略：布林通道上軌買入
+# 計算 ATR
+def ATR(data, period=14):
+    high = data['High']
+    low = data['Low']
+    close = data['Close']
+    
+    # 計算真實波幅 TR
+    tr = pd.DataFrame({
+        'high_low': high - low,
+        'high_close': (high - close.shift(1)).abs(),
+        'low_close': (low - close.shift(1)).abs()
+    })
+    
+    # 真實波幅的最大值
+    tr['TR'] = tr.max(axis=1)
+    
+    # 計算 ATR
+    atr = tr['TR'].rolling(window=period).mean()
+    return atr
+########################################################################
+
+
+########################################################################
+# 自定義策略：布林通道
 class BollingerBandsStrategy(Strategy):
     def init(self):
-        # 使用 talib 計算布林帶
+        # TALIB：布林通道
         self.upperband, self.middleband, self.lowerband = self.I(
             ta.BBANDS, 
             self.data.Close, 
@@ -61,26 +85,35 @@ class BollingerBandsStrategy(Strategy):
             nbdevdn=2, 
             matype=0
         )
+        # TALIB：簡單移動均線
+        # self.sma = self.I(SMA, self.data.Close, 20)
+        # 自定義變量：緩存止損價格
+        self.stop_loss_price = None  
+        # 自定義變量：動態計算 ATR
+        self.atr = self.I(ATR, self.data.df)
 
     def next(self):
-        if (self.middleband[-1] >= self.middleband[-2]):
-            # 如果沒有頭寸，並且價格跌破下軌，買入
-            if self.data.Close[-1] < self.lowerband[-1] and not self.position.is_long:
-            # if self.data.Close[-1] < self.lowerband[-1]:
-                self.buy()
+        if not self.position:
+            if self.data.Close[-1] > self.upperband[-1]:
+                self.sell()
+                self.stop_loss_price = self.data.Close[-1] + self.atr[-1] * 0.5
 
-            # 如果持有多頭倉位，並且價格回到中軌，賣出平倉
-            elif self.position.is_long and self.data.Close[-1] >= self.middleband[-1]:
+            elif self.data.Close[-1] < self.lowerband[-1]:
+                self.buy()
+                self.stop_loss_price = self.data.Close[-1] - self.atr[-1] * 0.5
+
+        elif self.position.is_long:
+            if self.data.Close[-1] <= self.stop_loss_price:
                 self.position.close()
 
-        elif (self.middleband[-1] <= self.middleband[-2]):
-            # 如果沒有頭寸，並且價格突破上軌，賣出
-            if self.data.Close[-1] > self.upperband[-1] and not self.position.is_short:
-            # elif self.data.Close[-1] > self.upperband[-1]:
-                self.sell()
+            elif self.data.Close[-1] >= self.middleband[-1]:
+                self.position.close()
 
-            # 如果持有空頭倉位，並且價格回到中軌，買入平倉
-            elif self.position.is_short and self.data.Close[-1] <= self.middleband[-1]:
+        elif self.position.is_short:
+            if self.data.Close[-1] >= self.stop_loss_price:
+                self.position.close()
+            
+            elif self.data.Close[-1] <= self.middleband[-1]:
                 self.position.close()
 
         # data.Close[-1]：對應的是前一根K線的收盤價。
