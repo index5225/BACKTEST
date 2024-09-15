@@ -153,8 +153,8 @@ class PriceChannel(Strategy):
         self.atr = self.I(ATR, self.data.df)
 
     def next(self):
-        is_max = self.data.Close[-1] == self.data.Close[-21:].max()
-        is_min = self.data.Close[-1] == self.data.Close[-21:].min()
+        is_max = round(self.data.Close[-1], 4) == np.round(self.data.Close[-121:].max(), 4)
+        is_min = round(self.data.Close[-1], 4) == np.round(self.data.Close[-121:].min(), 4)
 
         if is_max:
             self.sell()
