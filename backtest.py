@@ -19,34 +19,25 @@ import matplotlib.pyplot as plt
 
 
 ########################################################################
-# 自定義參數
-# re_download = True
-re_download = False
-########################################################################
-
-
-########################################################################
-# 重新下載歷史數據
-if re_download == True:
-    # 設定時間區間
-    start = datetime.datetime(2018,1,1)
-    end = datetime.datetime(2024,9,11)
-    # 從 YAHOO 下載歷史資料
-    dataframe = yf.download("^TWII", start, end)
-    # 轉存 CSV 檔
-    dataframe.to_csv("data.csv")
+# # 設定時間區間
+# start = datetime.datetime(2018,1,1)
+# end = datetime.datetime(2024,9,11)
+# # 從 YAHOO 下載歷史資料
+# raw_data = yf.download("^TWII", start, end)
+# # 轉存 CSV 檔
+# raw_data.to_csv("data.csv")
 ########################################################################
 
 
 ########################################################################
 # 讀取 CSV 檔
-dataframe = pd.read_csv('data.csv')
+raw_data = pd.read_csv('data.csv')
 # 對空值插值 (避免錯誤)
-dataframe = dataframe.infer_objects(copy=False)
+raw_data = raw_data.infer_objects(copy=False)
 # 篩選目標區間
-dataframe['Date'] = pd.to_datetime(dataframe['Date'])
-dataframe_filter = dataframe[(dataframe['Date']>='2023-09-01') & (dataframe['Date']<='2024-09-11')]
-dataframe_filter = dataframe_filter.set_index('Date')
+raw_data['Date'] = pd.to_datetime(raw_data['Date'])
+dataframe = raw_data[(raw_data['Date']>='2023-09-01') & (raw_data['Date']<='2024-09-11')]
+dataframe = dataframe.set_index('Date')
 ########################################################################
 
 
@@ -155,39 +146,21 @@ class SmaCrossover(Strategy):
         #         self.position.close()
 
 
-# 自定義策略：混合策略
-class MixBBandSma(Strategy):
+# 自定義策略：週期突破
+class PriceChannel(Strategy):
     def init(self):
-        # TALIB：布林通道
-        self.upperband, self.middleband, self.lowerband = self.I(
-            ta.BBANDS, 
-            self.data.Close, 
-            timeperiod=20, 
-            nbdevup=2, 
-            nbdevdn=2, 
-            matype=0
-        )
-        # TALIB：簡單移動均線
-        self.fast_line = self.I(SMA, self.data.Close, 5)
-        self.slow_line = self.I(SMA, self.data.Close, 20)
-        # 自定義變量：緩存止損價格
-        self.stop_loss_price = None  
         # 自定義變量：動態計算 ATR
         self.atr = self.I(ATR, self.data.df)
 
     def next(self):
-        # 均線交叉策略只適合做多，因為下跌通常又快又猛，做空會為賠
-        if not self.position:
-            if self.slow_line[-1] > self.slow_line[-2]:
-                if crossover(self.fast_line, self.slow_line):
-                    self.buy()
-                    self.stop_loss_price = self.data.Close[-1] - 100
+        is_max = self.data.Close[-1] == self.data.Close[-21:].max()
+        is_min = self.data.Close[-1] == self.data.Close[-21:].min()
 
-        elif self.position.is_long:
-            if self.data.Close[-1] <= self.stop_loss_price:
-                self.position.close()
-            elif crossover(self.slow_line, self.fast_line):
-                self.position.close()
+        if is_max:
+            self.sell()
+
+        if is_min:
+            self.buy()
 #######################################################################
 
 
@@ -195,27 +168,34 @@ class MixBBandSma(Strategy):
 # 運行回測並圖像化
 result = Backtest(
     # 數據
-    dataframe_filter,
+    dataframe,
     # 策略
-    MixBBandSma,
+    PriceChannel,
     # 資金
     cash=1000000,
     # 稅費
     commission=0.02,
     # 每次操作前自動關閉上次操作
     exclusive_orders=True,
+    # 對沖策略
+    hedging=False,
     # 收盤交易
     trade_on_close=True,
 )
 result.run()
 result.plot(
-    # 百分比/金額
-    relative_equity=True,
-    # 顯示權益曲線
+    plot_width=None,
     plot_equity=True,
-    # 顯示報酬率
     plot_return=False,
-    # 顯示交易量
+    plot_pl=True,
     plot_volume=True,
+    plot_drawdown=False,
+    smooth_equity=False,
+    relative_equity=True,
+    superimpose=True,
+    resample=True,
+    reverse_indicators=False,
+    show_legend=True,
+    open_browser=True
 )
 ########################################################################
